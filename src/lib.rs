@@ -36,6 +36,27 @@ pub struct Challenge {
     pub difficulty: u64,
 }
 
+impl Challenge {
+    /// Create with explicit `id`.
+    #[must_use]
+    pub fn new(id: ChallengeId, difficulty: u64) -> Self {
+        Self { id, difficulty }
+    }
+    /// Convenience: prove this challenge.
+    pub fn prove(&self) -> Result<Pow, PowError> {
+        prove(self)
+    }
+    /// Prove with explicit [`Config`].
+    pub fn prove_with(&self, cfg: &Config) -> Result<Pow, PowError> {
+        prove_with_config(self, cfg)
+    }
+    #[cfg(feature = "uuid")]
+    #[must_use]
+    pub fn generate(difficulty: u64) -> Self {
+        issue_challenge(difficulty)
+    }
+}
+
 /// Proof. `solution` is raw 96 bytes; on the wire it is hex-encoded to stay
 /// compatible with `nail` `common::pow` (`solution: String`).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -43,16 +64,30 @@ pub struct Challenge {
 pub struct Pow {
     pub challenge: Challenge,
     #[cfg_attr(feature = "serde", serde(with = "serde_hex"))]
-    pub solution: Vec<u8>,
+    solution: Vec<u8>,
     #[cfg_attr(feature = "serde", serde(default))]
     pub nonce: u64,
+}
+
+impl Pow {
+    /// Raw 96 bytes.
+    #[must_use]
+    pub fn solution(&self) -> &[u8] {
+        &self.solution
+    }
+    /// Verify against `expected_difficulty` (method form of [`verify`]).
+    pub fn verify(&self, expected_difficulty: u64) -> Result<(), VerifyError> {
+        verify(self, expected_difficulty)
+    }
+    pub fn verify_with(&self, expected_difficulty: u64, cfg: &Config) -> Result<(), VerifyError> {
+        verify_with_config(self, expected_difficulty, cfg)
+    }
 }
 
 #[cfg(feature = "serde")]
 mod serde_hex {
     use serde::{Deserializer, Serializer};
     pub fn serialize<S: Serializer>(v: &Vec<u8>, s: S) -> Result<S::Ok, S::Error> {
-        // Always emit hex string — wire-compatible with nail
         s.serialize_str(&hex::encode(v))
     }
     pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<u8>, D::Error> {
@@ -72,7 +107,6 @@ mod serde_hex {
                 self,
                 mut seq: A,
             ) -> Result<Self::Value, A::Error> {
-                // Back-compat: accept raw byte array
                 let mut out = Vec::with_capacity(seq.size_hint().unwrap_or(96));
                 while let Some(b) = seq.next_element::<u8>()? {
                     out.push(b);
@@ -84,18 +118,24 @@ mod serde_hex {
     }
 }
 
-/// Tunable verifier/prover parameters.
+/// Tunable parameters.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Config {
     pub max_difficulty: u64,
     pub hash_multiplier: u64,
 }
+impl Config {
+    #[must_use]
+    pub fn new(max_difficulty: u64, hash_multiplier: u64) -> Self {
+        Self {
+            max_difficulty,
+            hash_multiplier,
+        }
+    }
+}
 impl Default for Config {
     fn default() -> Self {
-        Self {
-            max_difficulty: DEFAULT_MAX_DIFFICULTY,
-            hash_multiplier: DEFAULT_HASH_MULTIPLIER,
-        }
+        Self::new(DEFAULT_MAX_DIFFICULTY, DEFAULT_HASH_MULTIPLIER)
     }
 }
 
@@ -172,22 +212,16 @@ fn vdf_verify(input: [u8; 32], difficulty: u64, output: &[u8], proof: &[u8]) -> 
 
 // ── public API ─────────────────────────────────────────────────────────
 
-/// Issue a fresh challenge (requires `uuid` feature).
 #[must_use]
 #[cfg(feature = "uuid")]
 pub fn issue_challenge(difficulty: u64) -> Challenge {
-    Challenge {
-        id: uuid::Uuid::now_v7(),
-        difficulty,
-    }
+    Challenge::new(uuid::Uuid::now_v7(), difficulty)
 }
 
-/// Prove `challenge` — finds `nonce` meeting the hash target then evaluates the VDF.
 pub fn prove(challenge: &Challenge) -> Result<Pow, PowError> {
     prove_with_config(challenge, &Config::default())
 }
 
-/// Like [`prove`] with explicit [`Config`].
 pub fn prove_with_config(challenge: &Challenge, cfg: &Config) -> Result<Pow, PowError> {
     if challenge.difficulty == 0 {
         return Err(PowError::ZeroDifficulty);
@@ -218,12 +252,10 @@ pub fn prove_with_config(challenge: &Challenge, cfg: &Config) -> Result<Pow, Pow
     })
 }
 
-/// Verify `pow` against `expected_difficulty`.
 pub fn verify(pow: &Pow, expected_difficulty: u64) -> Result<(), VerifyError> {
     verify_with_config(pow, expected_difficulty, &Config::default())
 }
 
-/// Like [`verify`] with explicit [`Config`].
 pub fn verify_with_config(
     pow: &Pow,
     expected_difficulty: u64,
@@ -256,16 +288,12 @@ pub fn verify_with_config(
     Ok(())
 }
 
-// ── hex helpers (wire compat) ──────────────────────────────────────────
-
 #[cfg(feature = "hex-encode")]
 impl Pow {
-    /// 192-char lower-case hex.
     #[must_use]
     pub fn solution_hex(&self) -> String {
         hex::encode(&self.solution)
     }
-    /// Build from hex string (validates length/hex).
     pub fn from_hex(challenge: Challenge, hex_str: &str, nonce: u64) -> Result<Self, VerifyError> {
         let bytes = hex::decode(hex_str).map_err(|e| VerifyError::BadHex(e.to_string()))?;
         if bytes.len() != SOLUTION_BYTES {

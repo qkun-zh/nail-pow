@@ -13,7 +13,7 @@ rust-version = "1.85"
 [dependencies]
 ascon-xof128 = "0.2.1"
 hex = { version = "0.4.3", optional = true }
-pso-vdf = "0.2.3"
+pso-vdf = "=0.2.3"
 serde = { version = "1.0", features = ["derive"], optional = true }
 thiserror = "2.0"
 uuid = { version = "1.24", features = ["v7"], optional = true }
