@@ -1,6 +1,6 @@
 # nail-pow
 
-[![Crates.io](https://img.shields.io/crates/v/nail-pow)](https://crates.io/crates/nail-pow) [![Docs.rs](https://img.shields.io/docsrs/nail-pow)](https://docs.rs/nail-pow) [![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue)](#license)
+[![Crates.io](https://img.shields.io/crates/v/nail-pow)](https://crates.io/crates/nail-pow) [![Docs.rs](https://img.shields.io/docsrs/nail-pow)](https://docs.rs/nail-pow) [![License](https://img.shields.io/badge/license-MIT-blue)](#license)
 
 Production proof-of-work crate extracted from [nail](https://github.com/qkun-zh/nail): **Ascon-CXOF128** hash-target + **MinRoot VDF (Wesolowski)** sequential delay.
 
@@ -80,4 +80,4 @@ Errors are typed (`thiserror`): `ZeroDifficulty`, `DifficultyTooHigh`, `TargetNo
 
 ## License
 
-MIT OR Apache-2.0
+MIT
