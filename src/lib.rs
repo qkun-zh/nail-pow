@@ -1,4 +1,6 @@
 #![forbid(unsafe_code)]
+#![allow(missing_docs)]
+#![deny(rustdoc::broken_intra_doc_links)]
 #![doc = include_str!("../README.md")]
 
 use ascon_xof128::{AsconCxof128, ExtendableOutput, TryCustomizedInit, Update, XofReader};
@@ -23,8 +25,10 @@ pub const SOLUTION_HEX_LEN: usize = SOLUTION_BYTES * 2; // 192
 
 // ── types ──────────────────────────────────────────────────────────────
 
+/// Challenge identifier — `Uuid` when `uuid` feature is enabled.
 #[cfg(feature = "uuid")]
 pub type ChallengeId = uuid::Uuid;
+/// Challenge identifier — raw 16 bytes when `uuid` feature is disabled.
 #[cfg(not(feature = "uuid"))]
 pub type ChallengeId = [u8; 16];
 
@@ -39,17 +43,20 @@ pub struct Challenge {
 impl Challenge {
     /// Create with explicit `id`.
     #[must_use]
+    /// Create a challenge with an explicit identifier.
+    #[must_use]
     pub fn new(id: ChallengeId, difficulty: u64) -> Self {
         Self { id, difficulty }
     }
-    /// Convenience: prove this challenge.
+    /// Prove this challenge using the default [`Config`].
     pub fn prove(&self) -> Result<Pow, PowError> {
         prove(self)
     }
-    /// Prove with explicit [`Config`].
+    /// Prove this challenge with an explicit [`Config`].
     pub fn prove_with(&self, cfg: &Config) -> Result<Pow, PowError> {
         prove_with_config(self, cfg)
     }
+    /// Generate a fresh challenge with a random `v7` UUID (requires `uuid` feature).
     #[cfg(feature = "uuid")]
     #[must_use]
     pub fn generate(difficulty: u64) -> Self {
@@ -76,9 +83,11 @@ impl Pow {
         &self.solution
     }
     /// Verify against `expected_difficulty` (method form of [`verify`]).
+    /// Verify this proof (method form of [`verify`]).
     pub fn verify(&self, expected_difficulty: u64) -> Result<(), VerifyError> {
         verify(self, expected_difficulty)
     }
+    /// Verify with explicit [`Config`].
     pub fn verify_with(&self, expected_difficulty: u64, cfg: &Config) -> Result<(), VerifyError> {
         verify_with_config(self, expected_difficulty, cfg)
     }
@@ -121,7 +130,9 @@ mod serde_hex {
 /// Tunable parameters.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Config {
+    /// Maximum accepted difficulty.
     pub max_difficulty: u64,
+    /// Hash trial multiplier.
     pub hash_multiplier: u64,
 }
 impl Config {
@@ -141,30 +152,42 @@ impl Default for Config {
 
 // ── errors ─────────────────────────────────────────────────────────────
 
+/// Errors from [`prove`] / [`prove_with_config`].
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum PowError {
+    /// Difficulty is zero.
     #[error("difficulty must be > 0")]
     ZeroDifficulty,
+    /// Difficulty exceeds `max_difficulty`.
     #[error("difficulty {0} exceeds max {1}")]
     DifficultyTooHigh(u64, u64),
+    /// CXOF initialization failed.
     #[error("cxof init failed: {0}")]
     Cxof(String),
 }
 
+/// Errors from [`verify`] / [`verify_with_config`].
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum VerifyError {
+    /// Expected difficulty does not match challenge.
     #[error("difficulty mismatch: expected {expected}, got {got}")]
     DifficultyMismatch { expected: u64, got: u64 },
+    /// Difficulty is zero or above `max_difficulty`.
     #[error("difficulty {0} out of range")]
     DifficultyOutOfRange(u64),
+    /// Solution has wrong length.
     #[error("invalid solution length {0}, expected {expected}", expected = SOLUTION_BYTES)]
     BadLength(usize),
+    /// Hex decoding failed.
     #[error("invalid hex: {0}")]
     BadHex(String),
+    /// Hash does not meet the target.
     #[error("hash target not met")]
     TargetNotMet,
+    /// VDF proof is invalid.
     #[error("vdf verification failed")]
     VdfFailed,
+    /// CXOF error during verification.
     #[error("cxof error: {0}")]
     Cxof(String),
 }
@@ -212,16 +235,25 @@ fn vdf_verify(input: [u8; 32], difficulty: u64, output: &[u8], proof: &[u8]) -> 
 
 // ── public API ─────────────────────────────────────────────────────────
 
+/// Issue a fresh challenge with a `v7` UUID (requires `uuid` feature).
 #[must_use]
 #[cfg(feature = "uuid")]
 pub fn issue_challenge(difficulty: u64) -> Challenge {
     Challenge::new(uuid::Uuid::now_v7(), difficulty)
 }
 
+/// Prove `challenge` with the default [`Config`].
+///
+/// # Errors
+/// Returns [`PowError`] if difficulty is zero or exceeds `max_difficulty`.
 pub fn prove(challenge: &Challenge) -> Result<Pow, PowError> {
     prove_with_config(challenge, &Config::default())
 }
 
+/// Prove `challenge` with an explicit [`Config`].
+///
+/// # Errors
+/// Returns [`PowError`] on invalid difficulty or CXOF failure.
 pub fn prove_with_config(challenge: &Challenge, cfg: &Config) -> Result<Pow, PowError> {
     if challenge.difficulty == 0 {
         return Err(PowError::ZeroDifficulty);
@@ -252,10 +284,18 @@ pub fn prove_with_config(challenge: &Challenge, cfg: &Config) -> Result<Pow, Pow
     })
 }
 
+/// Verify `pow` against `expected_difficulty` using the default [`Config`].
+///
+/// # Errors
+/// Returns [`VerifyError`] on mismatch, bad length, target miss or VDF failure.
 pub fn verify(pow: &Pow, expected_difficulty: u64) -> Result<(), VerifyError> {
     verify_with_config(pow, expected_difficulty, &Config::default())
 }
 
+/// Verify `pow` against `expected_difficulty` with an explicit [`Config`].
+///
+/// # Errors
+/// Returns [`VerifyError`] on any check failure.
 pub fn verify_with_config(
     pow: &Pow,
     expected_difficulty: u64,
@@ -290,10 +330,15 @@ pub fn verify_with_config(
 
 #[cfg(feature = "hex-encode")]
 impl Pow {
+    /// Hex-encoded solution (`192` chars).
     #[must_use]
     pub fn solution_hex(&self) -> String {
         hex::encode(&self.solution)
     }
+    /// Build from a hex-encoded solution.
+    ///
+    /// # Errors
+    /// Returns [`VerifyError::BadHex`] or [`VerifyError::BadLength`].
     pub fn from_hex(challenge: Challenge, hex_str: &str, nonce: u64) -> Result<Self, VerifyError> {
         let bytes = hex::decode(hex_str).map_err(|e| VerifyError::BadHex(e.to_string()))?;
         if bytes.len() != SOLUTION_BYTES {
