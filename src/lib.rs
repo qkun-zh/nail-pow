@@ -9,47 +9,83 @@ use pso_vdf::{
 };
 use thiserror::Error;
 
+/// Default upper bound — matches `nail` `MAX_DIFFICULTY`.
 pub const DEFAULT_MAX_DIFFICULTY: u64 = 160_000;
+/// Hash trials ≈ `difficulty * multiplier`.
 pub const DEFAULT_HASH_MULTIPLIER: u64 = 64;
+
 const VDF_OUTPUT_BYTES: usize = 48;
 const VDF_PROOF_BYTES: usize = 48;
+/// Raw solution length (output || proof).
 pub const SOLUTION_BYTES: usize = VDF_OUTPUT_BYTES + VDF_PROOF_BYTES; // 96
+/// Hex-encoded length.
+pub const SOLUTION_HEX_LEN: usize = SOLUTION_BYTES * 2; // 192
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct Challenge {
-    #[cfg_attr(feature = "uuid", serde(default))]
-    pub id: ChallengeId,
-    pub difficulty: u64,
-}
+// ── types ──────────────────────────────────────────────────────────────
 
 #[cfg(feature = "uuid")]
 pub type ChallengeId = uuid::Uuid;
 #[cfg(not(feature = "uuid"))]
 pub type ChallengeId = [u8; 16];
 
+/// Server-issued challenge. `id` must be unguessable & single-use server-side.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct Challenge {
+    pub id: ChallengeId,
+    pub difficulty: u64,
+}
+
+/// Proof. `solution` is raw 96 bytes; on the wire it is hex-encoded to stay
+/// compatible with `nail` `common::pow` (`solution: String`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Pow {
     pub challenge: Challenge,
-    /// raw 96 bytes; hex encoding is via `solution_hex()` when feature enabled
-    #[cfg_attr(feature = "serde", serde(with = "serde_bytes_compat",))]
+    #[cfg_attr(feature = "serde", serde(with = "serde_hex"))]
     pub solution: Vec<u8>,
+    #[cfg_attr(feature = "serde", serde(default))]
     pub nonce: u64,
 }
 
 #[cfg(feature = "serde")]
-mod serde_bytes_compat {
-    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+mod serde_hex {
+    use serde::{Deserializer, Serializer};
     pub fn serialize<S: Serializer>(v: &Vec<u8>, s: S) -> Result<S::Ok, S::Error> {
-        v.serialize(s)
+        // Always emit hex string — wire-compatible with nail
+        s.serialize_str(&hex::encode(v))
     }
     pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<u8>, D::Error> {
-        Vec::<u8>::deserialize(d)
+        struct V;
+        impl<'de> serde::de::Visitor<'de> for V {
+            type Value = Vec<u8>;
+            fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str("hex string (192 chars) or byte array")
+            }
+            fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<Self::Value, E> {
+                hex::decode(v).map_err(serde::de::Error::custom)
+            }
+            fn visit_string<E: serde::de::Error>(self, v: String) -> Result<Self::Value, E> {
+                hex::decode(&v).map_err(serde::de::Error::custom)
+            }
+            fn visit_seq<A: serde::de::SeqAccess<'de>>(
+                self,
+                mut seq: A,
+            ) -> Result<Self::Value, A::Error> {
+                // Back-compat: accept raw byte array
+                let mut out = Vec::with_capacity(seq.size_hint().unwrap_or(96));
+                while let Some(b) = seq.next_element::<u8>()? {
+                    out.push(b);
+                }
+                Ok(out)
+            }
+        }
+        d.deserialize_any(V)
     }
 }
 
-#[derive(Debug, Clone)]
+/// Tunable verifier/prover parameters.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Config {
     pub max_difficulty: u64,
     pub hash_multiplier: u64,
@@ -62,6 +98,8 @@ impl Default for Config {
         }
     }
 }
+
+// ── errors ─────────────────────────────────────────────────────────────
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum PowError {
@@ -79,8 +117,10 @@ pub enum VerifyError {
     DifficultyMismatch { expected: u64, got: u64 },
     #[error("difficulty {0} out of range")]
     DifficultyOutOfRange(u64),
-    #[error("invalid solution length {0}")]
+    #[error("invalid solution length {0}, expected {expected}", expected = SOLUTION_BYTES)]
     BadLength(usize),
+    #[error("invalid hex: {0}")]
+    BadHex(String),
     #[error("hash target not met")]
     TargetNotMet,
     #[error("vdf verification failed")]
@@ -88,6 +128,8 @@ pub enum VerifyError {
     #[error("cxof error: {0}")]
     Cxof(String),
 }
+
+// ── internals ──────────────────────────────────────────────────────────
 
 fn hash_meets_target(bytes: &[u8; 32], difficulty: u64, multiplier: u64) -> bool {
     if difficulty == 0 {
@@ -100,7 +142,7 @@ fn hash_meets_target(bytes: &[u8; 32], difficulty: u64, multiplier: u64) -> bool
 
 fn cxof_bytes(id: &ChallengeId, nonce: u64) -> Result<[u8; 32], String> {
     #[cfg(feature = "uuid")]
-    let customize = id.as_bytes();
+    let customize: &[u8] = id.as_bytes();
     #[cfg(not(feature = "uuid"))]
     let customize: &[u8] = id;
     let mut cxof = AsconCxof128::try_new_customized(customize).map_err(|e| e.to_string())?;
@@ -128,6 +170,9 @@ fn vdf_verify(input: [u8; 32], difficulty: u64, output: &[u8], proof: &[u8]) -> 
     )
 }
 
+// ── public API ─────────────────────────────────────────────────────────
+
+/// Issue a fresh challenge (requires `uuid` feature).
 #[must_use]
 #[cfg(feature = "uuid")]
 pub fn issue_challenge(difficulty: u64) -> Challenge {
@@ -137,10 +182,12 @@ pub fn issue_challenge(difficulty: u64) -> Challenge {
     }
 }
 
+/// Prove `challenge` — finds `nonce` meeting the hash target then evaluates the VDF.
 pub fn prove(challenge: &Challenge) -> Result<Pow, PowError> {
     prove_with_config(challenge, &Config::default())
 }
 
+/// Like [`prove`] with explicit [`Config`].
 pub fn prove_with_config(challenge: &Challenge, cfg: &Config) -> Result<Pow, PowError> {
     if challenge.difficulty == 0 {
         return Err(PowError::ZeroDifficulty);
@@ -163,6 +210,7 @@ pub fn prove_with_config(challenge: &Challenge, cfg: &Config) -> Result<Pow, Pow
     let mut sol = Vec::with_capacity(SOLUTION_BYTES);
     sol.extend_from_slice(&out);
     sol.extend_from_slice(&proof);
+    debug_assert_eq!(sol.len(), SOLUTION_BYTES);
     Ok(Pow {
         challenge: challenge.clone(),
         solution: sol,
@@ -170,10 +218,12 @@ pub fn prove_with_config(challenge: &Challenge, cfg: &Config) -> Result<Pow, Pow
     })
 }
 
+/// Verify `pow` against `expected_difficulty`.
 pub fn verify(pow: &Pow, expected_difficulty: u64) -> Result<(), VerifyError> {
     verify_with_config(pow, expected_difficulty, &Config::default())
 }
 
+/// Like [`verify`] with explicit [`Config`].
 pub fn verify_with_config(
     pow: &Pow,
     expected_difficulty: u64,
@@ -198,24 +248,32 @@ pub fn verify_with_config(
     if !vdf_verify(
         input,
         expected_difficulty,
-        &pow.solution[..48],
-        &pow.solution[48..],
+        &pow.solution[..VDF_OUTPUT_BYTES],
+        &pow.solution[VDF_OUTPUT_BYTES..],
     ) {
         return Err(VerifyError::VdfFailed);
     }
     Ok(())
 }
 
-// hex helpers
+// ── hex helpers (wire compat) ──────────────────────────────────────────
+
 #[cfg(feature = "hex-encode")]
 impl Pow {
+    /// 192-char lower-case hex.
+    #[must_use]
     pub fn solution_hex(&self) -> String {
         hex::encode(&self.solution)
     }
-    pub fn from_hex(challenge: Challenge, hex_str: &str, nonce: u64) -> Result<Self, String> {
+    /// Build from hex string (validates length/hex).
+    pub fn from_hex(challenge: Challenge, hex_str: &str, nonce: u64) -> Result<Self, VerifyError> {
+        let bytes = hex::decode(hex_str).map_err(|e| VerifyError::BadHex(e.to_string()))?;
+        if bytes.len() != SOLUTION_BYTES {
+            return Err(VerifyError::BadLength(bytes.len()));
+        }
         Ok(Self {
             challenge,
-            solution: hex::decode(hex_str).map_err(|e| e.to_string())?,
+            solution: bytes,
             nonce,
         })
     }
