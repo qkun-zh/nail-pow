@@ -37,7 +37,9 @@ pub type ChallengeId = [u8; 16];
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Challenge {
+    /// Random identifier — single-use server-side.
     pub id: ChallengeId,
+    /// Difficulty (VDF iterations and hash target).
     pub difficulty: u64,
 }
 
@@ -48,10 +50,16 @@ impl Challenge {
         Self { id, difficulty }
     }
     /// Prove this challenge using the default [`Config`].
+    ///
+    /// # Errors
+    /// Returns [`PowError`] if difficulty is zero or exceeds `max_difficulty`.
     pub fn prove(&self) -> Result<Pow, PowError> {
         prove(self)
     }
     /// Prove this challenge with an explicit [`Config`].
+    ///
+    /// # Errors
+    /// Returns [`PowError`] on invalid difficulty or CXOF failure.
     pub fn prove_with(&self, cfg: &Config) -> Result<Pow, PowError> {
         prove_with_config(self, cfg)
     }
@@ -68,9 +76,11 @@ impl Challenge {
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Pow {
+    /// Challenge this proof answers.
     pub challenge: Challenge,
     #[cfg_attr(feature = "serde", serde(with = "serde_hex"))]
     solution: Vec<u8>,
+    /// Nonce that meets the hash target.
     #[cfg_attr(feature = "serde", serde(default))]
     pub nonce: u64,
 }
@@ -87,6 +97,9 @@ impl Pow {
         verify(self, expected_difficulty)
     }
     /// Verify with explicit [`Config`].
+    ///
+    /// # Errors
+    /// Returns [`VerifyError`] on any check failure.
     pub fn verify_with(&self, expected_difficulty: u64, cfg: &Config) -> Result<(), VerifyError> {
         verify_with_config(self, expected_difficulty, cfg)
     }
@@ -170,6 +183,7 @@ pub enum PowError {
 pub enum VerifyError {
     /// Expected difficulty does not match challenge.
     #[error("difficulty mismatch: expected {expected}, got {got}")]
+    /// Expected difficulty does not match challenge.
     DifficultyMismatch { expected: u64, got: u64 },
     /// Difficulty is zero or above `max_difficulty`.
     #[error("difficulty {0} out of range")]
