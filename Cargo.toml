@@ -1,0 +1,30 @@
+[package]
+name = "nail-pow"
+version = "0.1.0"
+edition = "2021"
+description = "Production PoW crate: Ascon-CXOF hash-target + MinRoot VDF (Wesolowski), extracted from nail"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/qkun-zh/nail-pow"
+keywords = ["pow", "vdf", "ascon", "anti-spam", "proof-of-work"]
+categories = ["cryptography", "authentication"]
+readme = "README.md"
+rust-version = "1.85"
+
+[dependencies]
+ascon-xof128 = "0.2.1"
+hex = { version = "0.4.3", optional = true }
+pso-vdf = "0.2.3"
+serde = { version = "1.0", features = ["derive"], optional = true }
+thiserror = "2.0"
+uuid = { version = "1.24", features = ["v7"], optional = true }
+
+[features]
+default = ["std", "hex-encode", "uuid", "serde"]
+std = []
+hex-encode = ["hex", "std"]
+uuid = ["dep:uuid"]
+serde = ["dep:serde", "uuid/serde"]
+
+[dev-dependencies]
+serde_json = "1.0"
+uuid = { version = "1.24", features = ["v7", "serde"] }
