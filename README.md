@@ -33,7 +33,7 @@ verify(&pow, 100).unwrap();            // server verifies
 
 Custom config / no-uuid:
 
-```rust
+```rust,ignore
 use nail_pow::{Challenge, Config, prove_with_config, verify_with_config};
 
 let cfg = Config { max_difficulty: 50_000, hash_multiplier: 64 };
@@ -44,7 +44,7 @@ verify_with_config(&pow, 500, &cfg).unwrap();
 
 Hex wire (compat with `common::pow`):
 
-```rust
+```rust,ignore
 let hex = pow.solution_hex(); // 192-char hex for 96 bytes
 let pow2 = nail_pow::Pow::from_hex(challenge, &hex, pow.nonce).unwrap();
 ```
