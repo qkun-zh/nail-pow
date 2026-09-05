@@ -9,7 +9,10 @@ fn bench_pow(c: &mut Criterion) {
         });
         let pow = ch.prove().unwrap();
         g.bench_function(BenchmarkId::new("verify", d), |b| {
-            b.iter(|| black_box(verify(black_box(&pow), d).unwrap()))
+            b.iter(|| {
+                verify(black_box(&pow), d).unwrap();
+                black_box(())
+            })
         });
     }
     g.finish();

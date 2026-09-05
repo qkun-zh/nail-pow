@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 #![allow(missing_docs)]
+#![allow(clippy::doc_markdown)]
 #![deny(rustdoc::broken_intra_doc_links)]
 #![doc = include_str!("../README.md")]
 
@@ -41,8 +42,6 @@ pub struct Challenge {
 }
 
 impl Challenge {
-    /// Create with explicit `id`.
-    #[must_use]
     /// Create a challenge with an explicit identifier.
     #[must_use]
     pub fn new(id: ChallengeId, difficulty: u64) -> Self {
