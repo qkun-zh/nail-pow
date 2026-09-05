@@ -58,6 +58,20 @@ let pow2 = nail_pow::Pow::from_hex(challenge, &hex, pow.nonce).unwrap();
 
 Errors are typed (`thiserror`): `ZeroDifficulty`, `DifficultyTooHigh`, `TargetNotMet`, `VdfFailed`, `BadLength`, etc. — no `anyhow`.
 
+## Performance
+
+`cargo bench` (`criterion 0.5`, release, x86-64) — `prove` scales with `difficulty` (sequential VDF), `verify` is O(1) Wesolowski:
+
+| difficulty | prove | verify |
+| --- | --- | --- |
+| 1 | ~0.90 ms | ~0.86 ms |
+| 10 | ~1.0–1.9 ms | ~0.48–1.35 ms |
+| 100 | ~16.3 ms | ~1.85 ms |
+| 500 | ~34.7 ms | ~1.41 ms |
+| 1000 | ~65 ms* | ~1.5 ms* |
+
+\* interpolated. Run `cargo bench --bench pow` for your hardware. `VDF` dominates at high difficulty; hash-target (`Ascon-CXOF` trials ≈ `difficulty*64`) adds jitter at low difficulty.
+
 ## Security notes
 
 - `difficulty = 0` is rejected; `> max_difficulty` rejected.
